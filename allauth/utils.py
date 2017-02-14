@@ -90,7 +90,7 @@ def generate_unique_username(txts):
     for candidate in candidates:
         if candidate not in existing_users:
             try:
-                return adapter.clean_username(candidate, shallow=True)
+                return adapter.clean_username(candidate)
             except ValidationError:
                 pass
     # This really should not happen
