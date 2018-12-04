@@ -1,4 +1,6 @@
+import random
 import re
+import string
 import unicodedata
 import json
 
@@ -23,6 +25,13 @@ except:
     from django.utils import importlib
 
 
+# Magic number 7: if you run into collisions with this number, then you are
+# of big enough scale to start investing in a decent user model...
+MAX_USERNAME_SUFFIX_LENGTH = 7
+USERNAME_SUFFIX_CHARS = (
+    [string.digits] * 4 +
+    [string.ascii_letters] * (MAX_USERNAME_SUFFIX_LENGTH - 4))
+
 def _generate_unique_username_base(txts, regex=None):
     username = None
     regex = regex or '[^\w\s@+.-]'
@@ -46,33 +55,52 @@ def _generate_unique_username_base(txts, regex=None):
 
 
 def get_username_max_length():
-    from .account.app_settings import USER_MODEL_USERNAME_FIELD
-    if USER_MODEL_USERNAME_FIELD is not None:
+    from .account import app_settings as account_settings
+    if account_settings.USER_MODEL_USERNAME_FIELD is not None:
         User = get_user_model()
-        max_length = User._meta.get_field(USER_MODEL_USERNAME_FIELD).max_length
+        max_length = User._meta.get_field(account_settings.USER_MODEL_USERNAME_FIELD).max_length
     else:
         max_length = 0
     return max_length
 
 
-def generate_unique_username(txts, regex=None):
-    from .account.app_settings import USER_MODEL_USERNAME_FIELD
-    username = _generate_unique_username_base(txts, regex)
-    User = get_user_model()
+def generate_username_candidate(basename, suffix_length):
     max_length = get_username_max_length()
-    i = 0
-    while True:
-        try:
-            if i:
-                pfx = str(i + 1)
-            else:
-                pfx = ''
-            ret = username[0:max_length - len(pfx)] + pfx
-            query = {USER_MODEL_USERNAME_FIELD + '__iexact': ret}
-            User.objects.get(**query)
-            i += 1
-        except User.DoesNotExist:
-            return ret
+    suffix = ''.join(
+        random.choice(USERNAME_SUFFIX_CHARS[i])
+        for i in range(suffix_length))
+    return basename[0:max_length - len(suffix)] + suffix
+
+
+def generate_username_candidates(basename):
+    ret = [basename]
+    max_suffix_length = min(
+        get_username_max_length(),
+        MAX_USERNAME_SUFFIX_LENGTH)
+    for suffix_length in range(2, max_suffix_length):
+        ret.append(generate_username_candidate(basename, suffix_length))
+    return ret
+
+
+def generate_unique_username(txts):
+    from .account import app_settings as account_settings
+    from .account.adapter import get_adapter
+    adapter = get_adapter()
+    basename = _generate_unique_username_base(txts)
+    candidates = generate_username_candidates(basename)
+    existing_users = set(
+        get_user_model()
+        .objects
+        .filter(**{account_settings.USER_MODEL_USERNAME_FIELD + '__in': candidates})
+        .values_list(account_settings.USER_MODEL_USERNAME_FIELD, flat=True))
+    for candidate in candidates:
+        if candidate not in existing_users:
+            try:
+                return adapter.clean_username(candidate)
+            except ValidationError:
+                pass
+    # This really should not happen
+    raise NotImplementedError('Unable to find a unique username')
 
 
 def valid_email_or_none(email):
