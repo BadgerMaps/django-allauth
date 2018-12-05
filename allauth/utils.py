@@ -82,11 +82,11 @@ def generate_username_candidates(basename):
     return ret
 
 
-def generate_unique_username(txts):
+def generate_unique_username(txts, regex=None):
     from .account import app_settings as account_settings
     from .account.adapter import get_adapter
     adapter = get_adapter()
-    basename = _generate_unique_username_base(txts)
+    basename = _generate_unique_username_base(txts, regex)
     candidates = generate_username_candidates(basename)
     existing_users = set(
         get_user_model()
