@@ -62,6 +62,8 @@ def _generate_unique_username_base(txts, regex=None):
         try:
             username = adapter.clean_username(username, shallow=True)
             break
+        except ValidationError:
+            pass
     return username or 'user'
 
 
