@@ -1,6 +1,5 @@
 from __future__ import unicode_literals
 
-from allauth.socialaccount import providers
 from allauth.socialaccount.providers.base import ProviderAccount
 from allauth.socialaccount.providers.oauth2.provider import OAuth2Provider
 
@@ -20,7 +19,6 @@ class FeedlyAccount(ProviderAccount):
 class FeedlyProvider(OAuth2Provider):
     id = str('feedly')
     name = 'Feedly'
-    package = 'allauth.socialaccount.providers.feedly'
     account_class = FeedlyAccount
 
     def get_default_scope(self):
@@ -34,4 +32,5 @@ class FeedlyProvider(OAuth2Provider):
                     last_name=data.get('familyName'),
                     first_name=data.get('givenName'))
 
-providers.registry.register(FeedlyProvider)
+
+provider_classes = [FeedlyProvider]

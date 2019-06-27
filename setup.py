@@ -4,8 +4,8 @@ import os
 import sys
 from fnmatch import fnmatchcase
 
-from setuptools import setup, find_packages
-from distutils.util import convert_path
+from setuptools import convert_path, find_packages, setup
+
 
 # Provided as an attribute, so you can append to these instead
 # of replicating them:
@@ -100,7 +100,10 @@ excluded_directories = standard_exclude_directories
 package_data = find_package_data(exclude_directories=excluded_directories)
 
 test_requirements = []
-if sys.version_info[0] < 3:
+
+IS_PY2 = sys.version_info[0] < 3
+
+if IS_PY2:
     openid_package = 'python-openid >= 2.2.5'
     test_requirements.append('mock >= 1.0.1')
 else:
@@ -124,10 +127,10 @@ METADATA = dict(
     keywords='django auth account social openid twitter facebook oauth'
     ' registration',
     tests_require=test_requirements,
-    install_requires=['Django >= 1.6',
+    install_requires=['Django >= 1.11',
                       openid_package,
                       'requests-oauthlib >= 0.3.0',
-                      'requests >= 1.0.3'],
+                      "requests"],
     include_package_data=True,
     classifiers=[
         'Development Status :: 4 - Beta',
@@ -139,11 +142,14 @@ METADATA = dict(
         'Operating System :: OS Independent',
         'Programming Language :: Python',
         'Programming Language :: Python :: 2.7',
-        'Programming Language :: Python :: 3.2',
-        'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
         'Framework :: Django',
+        'Framework :: Django :: 1.11',
+        'Framework :: Django :: 2.0',
+        'Framework :: Django :: 2.1',
+        'Framework :: Django :: 2.2',
     ],
     packages=find_packages(exclude=['example']),
     package_data=package_data,

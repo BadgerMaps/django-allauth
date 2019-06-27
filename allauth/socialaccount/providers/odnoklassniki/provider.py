@@ -1,4 +1,3 @@
-from allauth.socialaccount import providers
 from allauth.socialaccount.providers.base import ProviderAccount
 from allauth.socialaccount.providers.oauth2.provider import OAuth2Provider
 
@@ -29,7 +28,6 @@ class OdnoklassnikiAccount(ProviderAccount):
 class OdnoklassnikiProvider(OAuth2Provider):
     id = 'odnoklassniki'
     name = 'Odnoklassniki'
-    package = 'allauth.socialaccount.providers.odnoklassniki'
     account_class = OdnoklassnikiAccount
 
     def extract_uid(self, data):
@@ -40,4 +38,4 @@ class OdnoklassnikiProvider(OAuth2Provider):
                     first_name=data.get('first_name'))
 
 
-providers.registry.register(OdnoklassnikiProvider)
+provider_classes = [OdnoklassnikiProvider]

@@ -1,4 +1,3 @@
-from allauth.socialaccount import providers
 from allauth.socialaccount.providers.base import ProviderAccount
 from allauth.socialaccount.providers.oauth2.provider import OAuth2Provider
 
@@ -27,7 +26,6 @@ class MailRuAccount(ProviderAccount):
 class MailRuProvider(OAuth2Provider):
     id = 'mailru'
     name = 'Mail.RU'
-    package = 'allauth.socialaccount.providers.mailru'
     account_class = MailRuAccount
 
     def extract_uid(self, data):
@@ -40,4 +38,4 @@ class MailRuProvider(OAuth2Provider):
                     first_name=data.get('first_name'))
 
 
-providers.registry.register(MailRuProvider)
+provider_classes = [MailRuProvider]

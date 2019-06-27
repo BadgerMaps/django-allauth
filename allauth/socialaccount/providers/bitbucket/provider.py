@@ -1,4 +1,3 @@
-from allauth.socialaccount import providers
 from allauth.socialaccount.providers.base import ProviderAccount
 from allauth.socialaccount.providers.oauth.provider import OAuthProvider
 
@@ -20,7 +19,6 @@ class BitbucketAccount(ProviderAccount):
 class BitbucketProvider(OAuthProvider):
     id = 'bitbucket'
     name = 'Bitbucket'
-    package = 'allauth.socialaccount.providers.bitbucket'
     account_class = BitbucketAccount
 
     def extract_uid(self, data):
@@ -32,4 +30,5 @@ class BitbucketProvider(OAuthProvider):
                     username=data.get('username'),
                     last_name=data.get('last_name'))
 
-providers.registry.register(BitbucketProvider)
+
+provider_classes = [BitbucketProvider]

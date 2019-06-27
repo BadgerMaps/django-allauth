@@ -1,8 +1,11 @@
 import requests
 from hashlib import md5
-from allauth.socialaccount.providers.oauth2.views import (OAuth2Adapter,
-                                                          OAuth2LoginView,
-                                                          OAuth2CallbackView)
+
+from allauth.socialaccount.providers.oauth2.views import (
+    OAuth2Adapter,
+    OAuth2CallbackView,
+    OAuth2LoginView,
+)
 
 from .provider import OdnoklassnikiProvider
 
@@ -25,7 +28,7 @@ USER_FIELDS = ['uid',
                'pic_2',  # aka pic128max
                'pic190x190',  # small
                'pic640x480',  # medium
-               'pic1024x768', # big
+               'pic1024x768',  # big
                'location']
 
 

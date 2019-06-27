@@ -1,4 +1,3 @@
-from allauth.socialaccount import providers
 from allauth.socialaccount.providers.base import ProviderAccount
 from allauth.socialaccount.providers.oauth2.provider import OAuth2Provider
 
@@ -18,7 +17,6 @@ class StackExchangeAccount(ProviderAccount):
 class StackExchangeProvider(OAuth2Provider):
     id = 'stackexchange'
     name = 'Stack Exchange'
-    package = 'allauth.socialaccount.providers.stackexchange'
     account_class = StackExchangeAccount
 
     def get_site(self):
@@ -36,4 +34,4 @@ class StackExchangeProvider(OAuth2Provider):
         return dict(username=data.get('display_name'))
 
 
-providers.registry.register(StackExchangeProvider)
+provider_classes = [StackExchangeProvider]

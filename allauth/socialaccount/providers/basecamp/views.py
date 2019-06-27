@@ -1,14 +1,17 @@
 import requests
 
-from allauth.socialaccount.providers.oauth2.views import (OAuth2Adapter,
-                                                          OAuth2LoginView,
-                                                          OAuth2CallbackView)
+from allauth.socialaccount.providers.oauth2.views import (
+    OAuth2Adapter,
+    OAuth2CallbackView,
+    OAuth2LoginView,
+)
+
 from .provider import BasecampProvider
 
 
 class BasecampOAuth2Adapter(OAuth2Adapter):
     provider_id = BasecampProvider.id
-    access_token_url = 'https://launchpad.37signals.com/authorization/token?type=web_server'
+    access_token_url = 'https://launchpad.37signals.com/authorization/token?type=web_server'  # noqa
     authorize_url = 'https://launchpad.37signals.com/authorization/new'
     profile_url = 'https://launchpad.37signals.com/authorization.json'
 

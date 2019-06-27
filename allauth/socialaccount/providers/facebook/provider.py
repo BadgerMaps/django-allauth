@@ -1,27 +1,29 @@
 import json
+
 from django.conf import settings
-from django.core.urlresolvers import reverse
 from django.core.exceptions import ImproperlyConfigured
 from django.middleware.csrf import get_token
 from django.template.loader import render_to_string
-from django.template import RequestContext
-from django.utils.html import mark_safe, escapejs
+from django.urls import reverse
 from django.utils.crypto import get_random_string
+from django.utils.html import escapejs, mark_safe
+from django.utils.http import urlquote
 
-from allauth.utils import import_callable
 from allauth.account.models import EmailAddress
-from allauth.socialaccount import providers
-from allauth.socialaccount.providers.base import (ProviderAccount,
-                                                  AuthProcess,
-                                                  AuthAction)
-from allauth.socialaccount.providers.oauth2.provider import OAuth2Provider
 from allauth.socialaccount.app_settings import QUERY_EMAIL
+from allauth.socialaccount.providers.base import (
+    AuthAction,
+    AuthProcess,
+    ProviderAccount,
+)
+from allauth.socialaccount.providers.oauth2.provider import OAuth2Provider
+from allauth.utils import import_callable
 
 from .locale import get_default_locale_callable
 
 
 GRAPH_API_VERSION = getattr(settings, 'SOCIALACCOUNT_PROVIDERS', {}).get(
-    'facebook',  {}).get('VERSION', 'v2.4')
+    'facebook', {}).get('VERSION', 'v2.12')
 GRAPH_API_URL = 'https://graph.facebook.com/' + GRAPH_API_VERSION
 
 NONCE_SESSION_KEY = 'allauth_facebook_nonce'
@@ -46,12 +48,11 @@ class FacebookAccount(ProviderAccount):
 class FacebookProvider(OAuth2Provider):
     id = 'facebook'
     name = 'Facebook'
-    package = 'allauth.socialaccount.providers.facebook'
     account_class = FacebookAccount
 
-    def __init__(self):
+    def __init__(self, request):
         self._locale_callable_cache = None
-        super(FacebookProvider, self).__init__()
+        super(FacebookProvider, self).__init__(request)
 
     def get_method(self):
         return self.get_settings().get('METHOD', 'oauth2')
@@ -64,8 +65,8 @@ class FacebookProvider(OAuth2Provider):
                 kwargs.get('process') or AuthProcess.LOGIN)
             action = "'%s'" % escapejs(
                 kwargs.get('action') or AuthAction.AUTHENTICATE)
-            ret = "javascript:allauth.facebook.login(%s, %s, %s)" \
-                % (next, action, process)
+            js = "allauth.facebook.login(%s, %s, %s)" % (next, action, process)
+            ret = "javascript:%s" % (urlquote(js),)
         else:
             assert method == 'oauth2'
             ret = super(FacebookProvider, self).get_login_url(request,
@@ -115,6 +116,15 @@ class FacebookProvider(OAuth2Provider):
             ret['auth_type'] = 'reauthenticate'
         return ret
 
+    def get_init_params(self, request, app):
+        init_params = {
+            'appId': app.client_id,
+            'version': GRAPH_API_VERSION
+        }
+        settings = self.get_settings()
+        init_params.update(settings.get('INIT_PARAMS', {}))
+        return init_params
+
     def get_fb_login_options(self, request):
         ret = self.get_auth_params(request, 'authenticate')
         ret['scope'] = ','.join(self.get_scope(request))
@@ -134,11 +144,14 @@ class FacebookProvider(OAuth2Provider):
                                        " add a SocialApp using the Django"
                                        " admin")
 
-        abs_uri = lambda name: request.build_absolute_uri(reverse(name))
+        def abs_uri(name):
+            return request.build_absolute_uri(reverse(name))
+
         fb_data = {
             "appId": app.client_id,
             "version": GRAPH_API_VERSION,
             "locale": locale,
+            "initParams": self.get_init_params(request, app),
             "loginOptions": self.get_fb_login_options(request),
             "loginByTokenUrl": abs_uri('facebook_login_by_token'),
             "cancelUrl": abs_uri('socialaccount_login_cancelled'),
@@ -150,9 +163,8 @@ class FacebookProvider(OAuth2Provider):
             "csrfToken": get_token(request)
         }
         ctx = {'fb_data': mark_safe(json.dumps(fb_data))}
-        return render_to_string('facebook/fbconnect.html',
-                                ctx,
-                                RequestContext(request))
+        return render_to_string('facebook/fbconnect.html', ctx,
+                                request=request)
 
     def get_nonce(self, request, or_create=False, pop=False):
         if pop:
@@ -185,4 +197,5 @@ class FacebookProvider(OAuth2Provider):
                                     primary=True))
         return ret
 
-providers.registry.register(FacebookProvider)
+
+provider_classes = [FacebookProvider]

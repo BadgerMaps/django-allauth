@@ -1,4 +1,3 @@
-from allauth.socialaccount import providers
 from allauth.socialaccount.providers.base import ProviderAccount
 from allauth.socialaccount.providers.oauth2.provider import OAuth2Provider
 
@@ -18,7 +17,6 @@ class AngelListAccount(ProviderAccount):
 class AngelListProvider(OAuth2Provider):
     id = 'angellist'
     name = 'AngelList'
-    package = 'allauth.socialaccount.providers.angellist'
     account_class = AngelListAccount
 
     def extract_uid(self, data):
@@ -30,4 +28,4 @@ class AngelListProvider(OAuth2Provider):
                     name=data.get('name'))
 
 
-providers.registry.register(AngelListProvider)
+provider_classes = [AngelListProvider]

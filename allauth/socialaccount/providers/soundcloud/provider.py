@@ -1,4 +1,3 @@
-from allauth.socialaccount import providers
 from allauth.socialaccount.providers.base import ProviderAccount
 from allauth.socialaccount.providers.oauth2.provider import OAuth2Provider
 
@@ -20,9 +19,7 @@ class SoundCloudAccount(ProviderAccount):
 class SoundCloudProvider(OAuth2Provider):
     id = 'soundcloud'
     name = 'SoundCloud'
-    package = 'allauth.socialaccount.providers.soundcloud'
     account_class = SoundCloudAccount
-
 
     def extract_uid(self, data):
         return str(data['id'])
@@ -33,4 +30,4 @@ class SoundCloudProvider(OAuth2Provider):
                     email=data.get('email'))
 
 
-providers.registry.register(SoundCloudProvider)
+provider_classes = [SoundCloudProvider]

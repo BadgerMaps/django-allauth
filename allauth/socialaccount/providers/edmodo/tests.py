@@ -1,11 +1,12 @@
-from allauth.socialaccount.tests import create_oauth2_tests
-from allauth.tests import MockedResponse
-from allauth.socialaccount.providers import registry
+from allauth.socialaccount.tests import OAuth2TestsMixin
+from allauth.tests import MockedResponse, TestCase
 
 from .provider import EdmodoProvider
 
 
-class EdmodoTests(create_oauth2_tests(registry.by_id(EdmodoProvider.id))):
+class EdmodoTests(OAuth2TestsMixin, TestCase):
+    provider_id = EdmodoProvider.id
+
     def get_mocked_response(self):
         return MockedResponse(200, """
 {
@@ -29,10 +30,12 @@ class EdmodoTests(create_oauth2_tests(registry.by_id(EdmodoProvider.id))):
   "coppa_verified": false,
   "subjects": null,
   "avatars": {
-    "small": "https://api.edmodo.com/users/74721257/avatar?type=small&u=670329ncqnf8fxv7tya24byn5",
-    "large": "https://api.edmodo.com/users/74721257/avatar?type=large&u=670329ncqnf8fxv7tya24byn5"
+    "small":
+    "https://api.edmodo.com/users/74721257/avatar?type=small&u=670329ncqnf8fxv7tya24byn5",
+    "large":
+    "https://api.edmodo.com/users/74721257/avatar?type=large&u=670329ncqnf8fxv7tya24byn5"
   },
   "email":"test@example.com",
   "sync_enabled": false
 }
-""")
+""")  # noqa

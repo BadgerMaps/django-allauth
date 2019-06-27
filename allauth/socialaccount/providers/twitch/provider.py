@@ -1,4 +1,3 @@
-from allauth.socialaccount import providers
 from allauth.socialaccount.providers.base import ProviderAccount
 from allauth.socialaccount.providers.oauth2.provider import OAuth2Provider
 
@@ -18,16 +17,20 @@ class TwitchAccount(ProviderAccount):
 class TwitchProvider(OAuth2Provider):
     id = 'twitch'
     name = 'Twitch'
-    package = 'allauth.socialaccount.providers.twitch'
     account_class = TwitchAccount
 
     def extract_uid(self, data):
         return str(data['_id'])
 
     def extract_common_fields(self, data):
-        return dict(username=data.get('name'),
-                    name=data.get('display_name'),
-                    email=data.get('email'))
+        return {
+            "username": data.get("name"),
+            "name": data.get("display_name"),
+            "email": data.get("email"),
+        }
+
+    def get_default_scope(self):
+        return ["user_read"]
 
 
-providers.registry.register(TwitchProvider)
+provider_classes = [TwitchProvider]

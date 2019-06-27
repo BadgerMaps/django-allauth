@@ -1,4 +1,3 @@
-from allauth.socialaccount import providers
 from allauth.socialaccount.providers.base import ProviderAccount
 from allauth.socialaccount.providers.oauth2.provider import OAuth2Provider
 
@@ -12,7 +11,6 @@ class AmazonAccount(ProviderAccount):
 class AmazonProvider(OAuth2Provider):
     id = 'amazon'
     name = 'Amazon'
-    package = 'allauth.socialaccount.providers.amazon'
     account_class = AmazonAccount
 
     def get_default_scope(self):
@@ -32,4 +30,5 @@ class AmazonProvider(OAuth2Provider):
                     last_name=last_name,
                     first_name=first_name)
 
-providers.registry.register(AmazonProvider)
+
+provider_classes = [AmazonProvider]

@@ -1,4 +1,3 @@
-from allauth.socialaccount import providers
 from allauth.socialaccount.providers.base import ProviderAccount
 from allauth.socialaccount.providers.oauth2.provider import OAuth2Provider
 
@@ -19,7 +18,6 @@ class FoursquareAccount(ProviderAccount):
 class FoursquareProvider(OAuth2Provider):
     id = 'foursquare'
     name = 'Foursquare'
-    package = 'allauth.socialaccount.providers.foursquare'
     account_class = FoursquareAccount
 
     def extract_uid(self, data):
@@ -31,4 +29,4 @@ class FoursquareProvider(OAuth2Provider):
                     email=data.get('contact').get('email'))
 
 
-providers.registry.register(FoursquareProvider)
+provider_classes = [FoursquareProvider]

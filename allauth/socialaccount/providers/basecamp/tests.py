@@ -1,11 +1,12 @@
-from allauth.socialaccount.tests import create_oauth2_tests
-from allauth.tests import MockedResponse
-from allauth.socialaccount.providers import registry
+from allauth.socialaccount.tests import OAuth2TestsMixin
+from allauth.tests import MockedResponse, TestCase
 
 from .provider import BasecampProvider
 
 
-class BasecampTests(create_oauth2_tests(registry.by_id(BasecampProvider.id))):
+class BasecampTests(OAuth2TestsMixin, TestCase):
+    provider_id = BasecampProvider.id
+
     def get_mocked_response(self):
         return MockedResponse(200, """
         {
@@ -14,7 +15,7 @@ class BasecampTests(create_oauth2_tests(registry.by_id(BasecampProvider.id))):
                 "id": 9999999,
                 "first_name": "Jason Fried",
                 "last_name": "Jason Fried",
-                "email_address": "jason@basecamp.com"
+                "email_address": "jason@example.com"
             },
             "accounts": [
                 {

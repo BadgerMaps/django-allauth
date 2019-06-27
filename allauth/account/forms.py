@@ -1,33 +1,68 @@
 from __future__ import absolute_import
 
 import warnings
+from importlib import import_module
 
 from django import forms
-from django.core.urlresolvers import reverse
-from django.core import exceptions
-from django.utils.translation import pgettext, ugettext_lazy as _, ugettext
+from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from django.contrib.sites.shortcuts import get_current_site
+from django.core import exceptions, validators
+from django.urls import reverse
+from django.utils.translation import pgettext
 
-from django.contrib.auth import authenticate
-from django.contrib.auth.tokens import default_token_generator
+from allauth.compat import ugettext, ugettext_lazy as _
 
-from ..utils import (email_address_exists,
-                     set_form_field_order,
-                     build_absolute_uri,
-                     get_username_max_length,
-                     get_current_site)
-
-from .models import EmailAddress
-from .utils import (perform_login, setup_user_email, url_str_to_user_pk,
-                    user_username, user_pk_to_url_str, filter_users_by_email,
-                    get_user_model)
-from .app_settings import AuthenticationMethod
+from ..utils import (
+    build_absolute_uri,
+    get_username_max_length,
+    set_form_field_order,
+)
 from . import app_settings
 from .adapter import get_adapter
+from .app_settings import AuthenticationMethod
+from .models import EmailAddress
+from .utils import (
+    filter_users_by_email,
+    get_user_model,
+    perform_login,
+    setup_user_email,
+    sync_user_email_addresses,
+    url_str_to_user_pk,
+    user_email,
+    user_pk_to_url_str,
+    user_username,
+)
 
-try:
-    from importlib import import_module
-except ImportError:
-    from django.utils.importlib import import_module
+
+class EmailAwarePasswordResetTokenGenerator(PasswordResetTokenGenerator):
+
+    def _make_hash_value(self, user, timestamp):
+        ret = super(
+            EmailAwarePasswordResetTokenGenerator, self)._make_hash_value(
+                user, timestamp)
+        sync_user_email_addresses(user)
+        emails = set([user.email] if user.email else [])
+        emails.update(
+            EmailAddress.objects
+            .filter(user=user)
+            .values_list('email', flat=True))
+        ret += '|'.join(sorted(emails))
+        return ret
+
+
+default_token_generator = EmailAwarePasswordResetTokenGenerator()
+
+
+class PasswordVerificationMixin(object):
+    def clean(self):
+        cleaned_data = super(PasswordVerificationMixin, self).clean()
+        password1 = cleaned_data.get('password1')
+        password2 = cleaned_data.get('password2')
+        if (password1 and password2) and password1 != password2:
+            self.add_error(
+                'password2', _("You must type the same password each time.")
+            )
+        return cleaned_data
 
 
 class PasswordField(forms.CharField):
@@ -37,15 +72,19 @@ class PasswordField(forms.CharField):
                                   app_settings.PASSWORD_INPUT_RENDER_VALUE)
         kwargs['widget'] = forms.PasswordInput(render_value=render_value,
                                                attrs={'placeholder':
-                                                      _(kwargs.get("label"))})
+                                                      kwargs.get("label")})
         super(PasswordField, self).__init__(*args, **kwargs)
 
 
 class SetPasswordField(PasswordField):
 
+    def __init__(self, *args, **kwargs):
+        super(SetPasswordField, self).__init__(*args, **kwargs)
+        self.user = None
+
     def clean(self, value):
         value = super(SetPasswordField, self).clean(value)
-        value = get_adapter().clean_password(value)
+        value = get_adapter().clean_password(value, user=self.user)
         return value
 
 
@@ -65,12 +104,10 @@ class LoginForm(forms.Form):
 
         'username_password_mismatch':
         _("The username and/or password you specified are not correct."),
-
-        'username_email_password_mismatch':
-        _("The login and/or password you specified are not correct.")
     }
 
     def __init__(self, *args, **kwargs):
+        self.request = kwargs.pop('request', None)
         super(LoginForm, self).__init__(*args, **kwargs)
         if app_settings.AUTHENTICATION_METHOD == AuthenticationMethod.EMAIL:
             login_widget = forms.TextInput(attrs={'type': 'email',
@@ -98,7 +135,7 @@ class LoginForm(forms.Form):
                                                          "Login"),
                                           widget=login_widget)
         self.fields["login"] = login_field
-        set_form_field_order(self,  ["login", "password", "remember"])
+        set_form_field_order(self, ["login", "password", "remember"])
         if app_settings.SESSION_REMEMBER is not None:
             del self.fields['remember']
 
@@ -111,11 +148,12 @@ class LoginForm(forms.Form):
         login = self.cleaned_data["login"]
         if app_settings.AUTHENTICATION_METHOD == AuthenticationMethod.EMAIL:
             credentials["email"] = login
-        elif (app_settings.AUTHENTICATION_METHOD
-              == AuthenticationMethod.USERNAME):
+        elif (
+                app_settings.AUTHENTICATION_METHOD ==
+                AuthenticationMethod.USERNAME):
             credentials["username"] = login
         else:
-            if "@" in login and "." in login:
+            if self._is_login_email(login):
                 credentials["email"] = login
             credentials["username"] = login
         credentials["password"] = self.cleaned_data["password"]
@@ -125,17 +163,34 @@ class LoginForm(forms.Form):
         login = self.cleaned_data['login']
         return login.strip()
 
+    def _is_login_email(self, login):
+        try:
+            validators.validate_email(login)
+            ret = True
+        except exceptions.ValidationError:
+            ret = False
+        return ret
+
     def clean(self):
+        super(LoginForm, self).clean()
         if self._errors:
             return
-        user = authenticate(**self.user_credentials())
+        credentials = self.user_credentials()
+        user = get_adapter(self.request).authenticate(
+            self.request,
+            **credentials)
         if user:
             self.user = user
         else:
+            auth_method = app_settings.AUTHENTICATION_METHOD
+            if auth_method == app_settings.AuthenticationMethod.USERNAME_EMAIL:
+                login = self.cleaned_data['login']
+                if self._is_login_email(login):
+                    auth_method = app_settings.AuthenticationMethod.EMAIL
+                else:
+                    auth_method = app_settings.AuthenticationMethod.USERNAME
             raise forms.ValidationError(
-                self.error_messages[
-                    '%s_password_mismatch'
-                    % app_settings.AUTHENTICATION_METHOD])
+                self.error_messages['%s_password_mismatch' % auth_method])
         return self.cleaned_data
 
     def login(self, request, redirect_url=None):
@@ -205,7 +260,6 @@ def _base_signup_form_class():
 
 class BaseSignupForm(_base_signup_form_class()):
     username = forms.CharField(label=_("Username"),
-                               max_length=get_username_max_length(),
                                min_length=app_settings.USERNAME_MIN_LENGTH,
                                widget=forms.TextInput(
                                    attrs={'placeholder':
@@ -221,31 +275,52 @@ class BaseSignupForm(_base_signup_form_class()):
         self.username_required = kwargs.pop('username_required',
                                             app_settings.USERNAME_REQUIRED)
         super(BaseSignupForm, self).__init__(*args, **kwargs)
-        # field order may contain additional fields from our base class,
-        # so take proper care when reordering...
-        field_order = ['email', 'username']
-        merged_field_order = list(self.fields.keys())
-        if email_required:
-            self.fields["email"].label = ugettext("E-mail")
-            self.fields["email"].required = True
-        else:
-            self.fields["email"].label = ugettext("E-mail (optional)")
-            self.fields["email"].required = False
-            self.fields["email"].widget.is_required = False
-            if self.username_required:
-                field_order = ['username', 'email']
+        username_field = self.fields['username']
+        username_field.max_length = get_username_max_length()
+        username_field.validators.append(
+            validators.MaxLengthValidator(username_field.max_length))
+        username_field.widget.attrs['maxlength'] = str(
+            username_field.max_length)
 
-        # Merge our email and username fields in if they are not
-        # currently in the order.  This is to allow others to
-        # re-arrange email and username if they desire.  Go in reverse
-        # so that we make sure the inserted items are always
-        # prepended.
-        for field in reversed(field_order):
-            if field not in merged_field_order:
-                merged_field_order.insert(0, field)
-        set_form_field_order(self, merged_field_order)
+        default_field_order = [
+            'email',
+            'email2',  # ignored when not present
+            'username',
+            'password1',
+            'password2'  # ignored when not present
+        ]
+        if app_settings.SIGNUP_EMAIL_ENTER_TWICE:
+            self.fields["email2"] = forms.EmailField(
+                label=_("E-mail (again)"),
+                widget=forms.TextInput(
+                    attrs={
+                        'type': 'email',
+                        'placeholder': _('E-mail address confirmation')
+                    }
+                )
+            )
+        if email_required:
+            self.fields['email'].label = ugettext("E-mail")
+            self.fields['email'].required = True
+        else:
+            self.fields['email'].label = ugettext("E-mail (optional)")
+            self.fields['email'].required = False
+            self.fields['email'].widget.is_required = False
+            if self.username_required:
+                default_field_order = [
+                    'username',
+                    'email',
+                    'email2',  # ignored when not present
+                    'password1',
+                    'password2'  # ignored when not present
+                ]
+
         if not self.username_required:
             del self.fields["username"]
+
+        set_form_field_order(
+            self,
+            getattr(self, 'field_order', None) or default_field_order)
 
     def clean_username(self):
         value = self.cleaned_data["username"]
@@ -253,16 +328,25 @@ class BaseSignupForm(_base_signup_form_class()):
         return value
 
     def clean_email(self):
-        value = self.cleaned_data["email"]
+        value = self.cleaned_data['email']
         value = get_adapter().clean_email(value)
-        if app_settings.UNIQUE_EMAIL:
-            if value and email_address_exists(value):
-                self.raise_duplicate_email_error()
+        if value and app_settings.UNIQUE_EMAIL:
+            value = self.validate_unique_email(value)
         return value
 
-    def raise_duplicate_email_error(self):
-        raise forms.ValidationError(_("A user is already registered"
-                                      " with this e-mail address."))
+    def validate_unique_email(self, value):
+        return get_adapter().validate_unique_email(value)
+
+    def clean(self):
+        cleaned_data = super(BaseSignupForm, self).clean()
+        if app_settings.SIGNUP_EMAIL_ENTER_TWICE:
+            email = cleaned_data.get('email')
+            email2 = cleaned_data.get('email2')
+            if (email and email2) and email != email2:
+                self.add_error(
+                    'email2', _("You must type the same email each time.")
+                )
+        return cleaned_data
 
     def custom_signup(self, request, user):
         custom_form = super(BaseSignupForm, self)
@@ -278,31 +362,46 @@ class BaseSignupForm(_base_signup_form_class()):
 
 
 class SignupForm(BaseSignupForm):
-
-    password1 = SetPasswordField(label=_("Password"))
-    password2 = PasswordField(label=_("Password (again)"))
-    confirmation_key = forms.CharField(max_length=40,
-                                       required=False,
-                                       widget=forms.HiddenInput())
-
     def __init__(self, *args, **kwargs):
         super(SignupForm, self).__init__(*args, **kwargs)
-        if not app_settings.SIGNUP_PASSWORD_VERIFICATION:
-            del self.fields["password2"]
+        self.fields['password1'] = PasswordField(label=_("Password"))
+        if app_settings.SIGNUP_PASSWORD_ENTER_TWICE:
+            self.fields['password2'] = PasswordField(
+                label=_("Password (again)"))
+
+        if hasattr(self, 'field_order'):
+            set_form_field_order(self, self.field_order)
 
     def clean(self):
         super(SignupForm, self).clean()
-        if app_settings.SIGNUP_PASSWORD_VERIFICATION \
+
+        # `password` cannot be of type `SetPasswordField`, as we don't
+        # have a `User` yet. So, let's populate a dummy user to be used
+        # for password validaton.
+        dummy_user = get_user_model()
+        user_username(dummy_user, self.cleaned_data.get("username"))
+        user_email(dummy_user, self.cleaned_data.get("email"))
+        password = self.cleaned_data.get('password1')
+        if password:
+            try:
+                get_adapter().clean_password(
+                    password,
+                    user=dummy_user)
+            except forms.ValidationError as e:
+                self.add_error('password1', e)
+
+        if app_settings.SIGNUP_PASSWORD_ENTER_TWICE \
                 and "password1" in self.cleaned_data \
                 and "password2" in self.cleaned_data:
             if self.cleaned_data["password1"] \
                     != self.cleaned_data["password2"]:
-                raise forms.ValidationError(_("You must type the same password"
-                                              " each time."))
+                self.add_error(
+                    'password2',
+                    _("You must type the same password each time."))
         return self.cleaned_data
 
     def save(self, request):
-        adapter = get_adapter()
+        adapter = get_adapter(request)
         user = adapter.new_user(request)
         adapter.save_user(request, user, self)
         self.custom_signup(request, user)
@@ -320,11 +419,13 @@ class UserForm(forms.Form):
 
 class AddEmailForm(UserForm):
 
-    email = forms.EmailField(label=_("E-mail"),
-                             required=True,
-                             widget=forms.TextInput(attrs={"type": "email",
-                                                            "size": "30",
-                                                            "placeholder": _('E-mail address')}))
+    email = forms.EmailField(
+        label=_("E-mail"),
+        required=True,
+        widget=forms.TextInput(
+            attrs={"type": "email",
+                   "size": "30",
+                   "placeholder": _('E-mail address')}))
 
     def clean_email(self):
         value = self.cleaned_data["email"]
@@ -352,11 +453,15 @@ class AddEmailForm(UserForm):
                                               confirm=True)
 
 
-class ChangePasswordForm(UserForm):
+class ChangePasswordForm(PasswordVerificationMixin, UserForm):
 
     oldpassword = PasswordField(label=_("Current Password"))
     password1 = SetPasswordField(label=_("New Password"))
     password2 = PasswordField(label=_("New Password (again)"))
+
+    def __init__(self, *args, **kwargs):
+        super(ChangePasswordForm, self).__init__(*args, **kwargs)
+        self.fields['password1'].user = self.user
 
     def clean_oldpassword(self):
         if not self.user.check_password(self.cleaned_data.get("oldpassword")):
@@ -364,32 +469,18 @@ class ChangePasswordForm(UserForm):
                                           " password."))
         return self.cleaned_data["oldpassword"]
 
-    def clean_password2(self):
-        if ("password1" in self.cleaned_data
-                and "password2" in self.cleaned_data):
-            if (self.cleaned_data["password1"]
-                    != self.cleaned_data["password2"]):
-                raise forms.ValidationError(_("You must type the same password"
-                                              " each time."))
-        return self.cleaned_data["password2"]
-
     def save(self):
         get_adapter().set_password(self.user, self.cleaned_data["password1"])
 
 
-class SetPasswordForm(UserForm):
+class SetPasswordForm(PasswordVerificationMixin, UserForm):
 
     password1 = SetPasswordField(label=_("Password"))
     password2 = PasswordField(label=_("Password (again)"))
 
-    def clean_password2(self):
-        if ("password1" in self.cleaned_data
-                and "password2" in self.cleaned_data):
-            if (self.cleaned_data["password1"]
-                    != self.cleaned_data["password2"]):
-                raise forms.ValidationError(_("You must type the same password"
-                                              " each time."))
-        return self.cleaned_data["password2"]
+    def __init__(self, *args, **kwargs):
+        super(SetPasswordForm, self).__init__(*args, **kwargs)
+        self.fields['password1'].user = self.user
 
     def save(self):
         get_adapter().set_password(self.user, self.cleaned_data["password1"])
@@ -400,7 +491,12 @@ class ResetPasswordForm(forms.Form):
     email = forms.EmailField(
         label=_("E-mail"),
         required=True,
-        widget=forms.TextInput(attrs={"type": "email", "size": "30"}))
+        widget=forms.TextInput(attrs={
+            "type": "email",
+            "size": "30",
+            "placeholder": _("E-mail address"),
+        })
+    )
 
     def clean_email(self):
         email = self.cleaned_data["email"]
@@ -412,7 +508,7 @@ class ResetPasswordForm(forms.Form):
         return self.cleaned_data["email"]
 
     def save(self, request, **kwargs):
-
+        current_site = get_current_site(request)
         email = self.cleaned_data["email"]
         token_generator = kwargs.get("token_generator",
                                      default_token_generator)
@@ -425,29 +521,29 @@ class ResetPasswordForm(forms.Form):
             # password_reset = PasswordReset(user=user, temp_key=temp_key)
             # password_reset.save()
 
-            current_site = get_current_site(request)
-
             # send the password reset email
             path = reverse("account_reset_password_from_key",
                            kwargs=dict(uidb36=user_pk_to_url_str(user),
                                        key=temp_key))
             url = build_absolute_uri(
-                request, path,
-                protocol=app_settings.DEFAULT_HTTP_PROTOCOL)
-            context = {"site": current_site,
+                request, path)
+
+            context = {"current_site": current_site,
                        "user": user,
                        "password_reset_url": url,
                        "request": request}
+
             if app_settings.AUTHENTICATION_METHOD \
                     != AuthenticationMethod.EMAIL:
                 context['username'] = user_username(user)
-            get_adapter().send_mail('account/email/password_reset_key',
-                                    email,
-                                    context)
+            get_adapter(request).send_mail(
+                'account/email/password_reset_key',
+                email,
+                context)
         return self.cleaned_data["email"]
 
 
-class ResetPasswordKeyForm(forms.Form):
+class ResetPasswordKeyForm(PasswordVerificationMixin, forms.Form):
 
     password1 = SetPasswordField(label=_("New Password"))
     password2 = PasswordField(label=_("New Password (again)"))
@@ -456,16 +552,7 @@ class ResetPasswordKeyForm(forms.Form):
         self.user = kwargs.pop("user", None)
         self.temp_key = kwargs.pop("temp_key", None)
         super(ResetPasswordKeyForm, self).__init__(*args, **kwargs)
-
-    # FIXME: Inspecting other fields -> should be put in def clean(self) ?
-    def clean_password2(self):
-        if ("password1" in self.cleaned_data
-                and "password2" in self.cleaned_data):
-            if (self.cleaned_data["password1"]
-                    != self.cleaned_data["password2"]):
-                raise forms.ValidationError(_("You must type the same"
-                                              " password each time."))
-        return self.cleaned_data["password2"]
+        self.fields['password1'].user = self.user
 
     def save(self):
         get_adapter().set_password(self.user, self.cleaned_data["password1"])
@@ -494,8 +581,11 @@ class UserTokenForm(forms.Form):
     def clean(self):
         cleaned_data = super(UserTokenForm, self).clean()
 
-        uidb36 = cleaned_data['uidb36']
-        key = cleaned_data['key']
+        uidb36 = cleaned_data.get('uidb36', None)
+        key = cleaned_data.get('key', None)
+
+        if not key:
+            raise forms.ValidationError(self.error_messages['token_invalid'])
 
         self.reset_user = self._get_user(uidb36)
         if (self.reset_user is None or

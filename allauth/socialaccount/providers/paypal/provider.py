@@ -1,4 +1,3 @@
-from allauth.socialaccount import providers
 from allauth.socialaccount.providers.base import ProviderAccount
 from allauth.socialaccount.providers.oauth2.provider import OAuth2Provider
 
@@ -15,7 +14,6 @@ class PaypalAccount(ProviderAccount):
 class PaypalProvider(OAuth2Provider):
     id = 'paypal'
     name = 'Paypal'
-    package = 'allauth.socialaccount.providers.paypal'
     account_class = PaypalAccount
 
     def get_default_scope(self):
@@ -31,4 +29,5 @@ class PaypalProvider(OAuth2Provider):
                     last_name=data.get('family_name', ''),
                     email=data.get('email'))
 
-providers.registry.register(PaypalProvider)
+
+provider_classes = [PaypalProvider]

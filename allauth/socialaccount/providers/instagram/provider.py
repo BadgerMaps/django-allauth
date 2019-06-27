@@ -1,4 +1,3 @@
-from allauth.socialaccount import providers
 from allauth.socialaccount.providers.base import ProviderAccount
 from allauth.socialaccount.providers.oauth2.provider import OAuth2Provider
 
@@ -21,7 +20,6 @@ class InstagramAccount(ProviderAccount):
 class InstagramProvider(OAuth2Provider):
     id = 'instagram'
     name = 'Instagram'
-    package = 'allauth.socialaccount.providers.instagram'
     account_class = InstagramAccount
 
     def extract_extra_data(self, data):
@@ -34,7 +32,8 @@ class InstagramProvider(OAuth2Provider):
         return str(data['data']['id'])
 
     def extract_common_fields(self, data):
-        return dict(username=data['data'].get('username'))
+        return dict(username=data['data'].get('username'),
+                    name=data['data'].get('full_name'))
 
 
-providers.registry.register(InstagramProvider)
+provider_classes = [InstagramProvider]

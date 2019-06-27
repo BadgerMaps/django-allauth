@@ -1,29 +1,23 @@
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import
-from __future__ import unicode_literals
+from __future__ import absolute_import, unicode_literals
+
+from importlib import import_module
+from requests.exceptions import HTTPError
 
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.core import mail
 from django.test.client import RequestFactory
 from django.test.utils import override_settings
-from django.core import mail
-from django.core.urlresolvers import reverse
+from django.urls import reverse
 
-try:
-    from importlib import import_module
-except ImportError:
-    from django.utils.importlib import import_module
-
-from allauth.socialaccount.tests import create_oauth2_tests
 from allauth.account import app_settings as account_settings
-from allauth.account.models import EmailConfirmation, EmailAddress
-from allauth.socialaccount.models import SocialAccount, SocialToken
-from allauth.socialaccount.providers import registry
-from allauth.tests import MockedResponse, patch
-from allauth.account.signals import user_signed_up
 from allauth.account.adapter import get_adapter
-
-from requests.exceptions import HTTPError
+from allauth.account.models import EmailAddress, EmailConfirmation
+from allauth.account.signals import user_signed_up
+from allauth.socialaccount.models import SocialAccount, SocialToken
+from allauth.socialaccount.tests import OAuth2TestsMixin
+from allauth.tests import MockedResponse, TestCase, patch
 
 from .provider import GoogleProvider
 
@@ -33,13 +27,14 @@ from .provider import GoogleProvider
     ACCOUNT_SIGNUP_FORM_CLASS=None,
     ACCOUNT_EMAIL_VERIFICATION=account_settings
     .EmailVerificationMethod.MANDATORY)
-class GoogleTests(create_oauth2_tests(registry.by_id(GoogleProvider.id))):
+class GoogleTests(OAuth2TestsMixin, TestCase):
+    provider_id = GoogleProvider.id
 
     def get_mocked_response(self,
                             family_name='Penners',
                             given_name='Raymond',
                             name='Raymond Penners',
-                            email='raymond.penners@gmail.com',
+                            email="raymond.penners@example.com",
                             verified_email=True):
         return MockedResponse(200, """
               {"family_name": "%s", "name": "%s",
@@ -67,7 +62,7 @@ class GoogleTests(create_oauth2_tests(registry.by_id(GoogleProvider.id))):
             reverse(self.provider.id + '_login'),
             dict(process='login'))
 
-        adapter = GoogleOAuth2Adapter()
+        adapter = GoogleOAuth2Adapter(request)
         app = adapter.get_provider().get_app(request)
         token = SocialToken(token='some_token')
         response_with_401 = LessMockedResponse(
@@ -92,7 +87,7 @@ class GoogleTests(create_oauth2_tests(registry.by_id(GoogleProvider.id))):
     def test_username_based_on_email(self):
         first_name = '明'
         last_name = '小'
-        email = 'raymond.penners@gmail.com'
+        email = "raymond.penners@example.com"
         self.login(self.get_mocked_response(name=first_name + ' ' + last_name,
                                             email=email,
                                             given_name=first_name,
@@ -102,7 +97,7 @@ class GoogleTests(create_oauth2_tests(registry.by_id(GoogleProvider.id))):
         self.assertEqual(user.username, 'raymond.penners')
 
     def test_email_verified(self):
-        test_email = 'raymond.penners@gmail.com'
+        test_email = "raymond.penners@example.com"
         self.login(self.get_mocked_response(verified_email=True))
         email_address = EmailAddress.objects \
             .get(email=test_email,
@@ -128,8 +123,9 @@ class GoogleTests(create_oauth2_tests(registry.by_id(GoogleProvider.id))):
         self.login(self.get_mocked_response(verified_email=True))
         self.assertTrue(len(sent_signals) > 0)
 
+    @override_settings(ACCOUNT_EMAIL_CONFIRMATION_HMAC=False)
     def test_email_unverified(self):
-        test_email = 'raymond.penners@gmail.com'
+        test_email = "raymond.penners@example.com"
         resp = self.login(self.get_mocked_response(verified_email=False))
         email_address = EmailAddress.objects \
             .get(email=test_email)
@@ -149,8 +145,8 @@ class GoogleTests(create_oauth2_tests(registry.by_id(GoogleProvider.id))):
         self.client.cookies[settings.SESSION_COOKIE_NAME] = store.session_key
         request = RequestFactory().get('/')
         request.session = self.client.session
-        adapter = get_adapter()
-        test_email = 'raymond.penners@gmail.com'
+        adapter = get_adapter(request)
+        test_email = "raymond.penners@example.com"
         adapter.stash_verified_email(request, test_email)
         request.session.save()
 
@@ -163,7 +159,7 @@ class GoogleTests(create_oauth2_tests(registry.by_id(GoogleProvider.id))):
                 email_address__email=test_email).exists())
 
     def test_account_connect(self):
-        email = 'some@mail.com'
+        email = "user@example.com"
         user = User.objects.create(username='user',
                                    is_active=True,
                                    email=email)
@@ -194,7 +190,7 @@ class GoogleTests(create_oauth2_tests(registry.by_id(GoogleProvider.id))):
         .EmailVerificationMethod.NONE
     )
     def test_social_email_verification_skipped(self):
-        test_email = 'raymond.penners@gmail.com'
+        test_email = "raymond.penners@example.com"
         self.login(self.get_mocked_response(verified_email=False))
         email_address = EmailAddress.objects.get(email=test_email)
         self.assertFalse(email_address.verified)
